@@ -5,7 +5,9 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const LINKS = [
   { href: '/#how-it-works', label: 'How it works' },
-  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/issue', label: 'Issue credential' },
+  { href: '/dashboard', label: 'My credentials' },
+  { href: '/trust-dashboard', label: 'Trust lookup' },
   { href: '/payment-check', label: 'Check payment' },
 ];
 

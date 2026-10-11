@@ -228,3 +228,19 @@ The app is fully responsive with breakpoints:
 ## 📄 License
 
 MIT License - see [LICENSE](../LICENSE) for details
+
+## Credential flow: issue, share, verify
+
+Routes: `/` (landing), `/issue`, `/verify/[id]`, `/receipt/[id]`, `/dashboard` (credentials issued from this browser).
+The earlier payment-evidence story and trust lookup moved to `/payment-story` and `/trust-dashboard`; `/payment-check` and `/credential/*` are unchanged.
+
+How it works:
+
+- A credential's **fingerprint** (`keccak256` of title, recipient name, description and a random salt) is written to `CredentialRegistry.issueCredential(holder, keccak256(title), fingerprint, expiry)` by the **issuer's own wallet**. The app never holds a key and never signs.
+- The **share link** (`/verify/<id>?d=<payload>`) carries the readable details. The verifier's browser recomputes the fingerprint and the credential ID and compares them with the registry, so edited details show as `DETAILS DO NOT MATCH`. Because the details are in the link, do not put sensitive personal data in them.
+- Statuses: `VERIFIED`, `PENDING`, `REVOKED`, `EXPIRED`, `NOT FOUND`, `DETAILS DO NOT MATCH`, `CANNOT CHECK` (registry unreachable), `DEMO · NOT ANCHORED`.
+- Issued credentials are listed from this browser's `localStorage`; the registry and the link remain the source of truth.
+
+**Demo mode:** if `NEXT_PUBLIC_CREDENTIAL_REGISTRY_ADDRESS` is empty, `/issue` creates clearly labelled demo credentials that never touch a chain and can never show as verified. To anchor on Monad testnet, deploy the registry, set that variable, and issue with a wallet that the registry owner has authorised as an issuer.
+
+Libraries added for this flow: `motion`, `lenis` (landing page only, skipped under `prefers-reduced-motion`), `qrcode.react`, `sonner`.
