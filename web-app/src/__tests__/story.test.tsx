@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderToString } from 'react-dom/server';
-import Home from '@/app/page';
+import Home from '@/app/payment-story/page';
 
 type Entry = Partial<IntersectionObserverEntry> & { target: Element };
 class MockIO {

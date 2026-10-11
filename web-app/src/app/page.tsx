@@ -1,28 +1,24 @@
 import type { Metadata } from 'next';
-import '@/styles/story.css';
-import { ChapterAnalystReports } from '@/components/story/ChapterAnalystReports';
-import { ChapterCaseFile } from '@/components/story/ChapterCaseFile';
-import { ChapterCTA } from '@/components/story/ChapterCTA';
-import { ChapterDecision } from '@/components/story/ChapterDecision';
-import { ChapterMissingEvidence } from '@/components/story/ChapterMissingEvidence';
-import { ChapterTransfer } from '@/components/story/ChapterTransfer';
-import { StoryShell } from '@/components/story/StoryShell';
+import { DcShell } from '@/components/dc/DcChrome';
+import { FinalCta, HowItWorks, LandingHero, VerificationSection } from '@/components/dc/Landing';
+import { ScrollProgress } from '@/components/dc/ScrollStory';
+import { SmoothScroll } from '@/components/dc/SmoothScroll';
 
 export const metadata: Metadata = {
-  title: 'Credentia — Verify anyone before you pay them',
-  description: 'A payment becomes a case file: credentials, context and three independent risk assessments before money moves.',
+  title: 'Credentia — Credentials you can trust',
+  description: 'Issue, share, and verify digital credentials in seconds on Monad testnet. A hackathon demonstration.',
 };
 
-/** The landing story. Static, with no wallet, API or provider calls. */
+/** Landing page. Static: needs no wallet, API or network to render. */
 export default function Home() {
   return (
-    <StoryShell>
-      <ChapterTransfer />
-      <ChapterMissingEvidence />
-      <ChapterCaseFile />
-      <ChapterAnalystReports />
-      <ChapterDecision />
-      <ChapterCTA />
-    </StoryShell>
+    <DcShell wallet={false}>
+      <SmoothScroll />
+      <ScrollProgress />
+      <LandingHero />
+      <HowItWorks />
+      <VerificationSection />
+      <FinalCta />
+    </DcShell>
   );
 }

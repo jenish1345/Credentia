@@ -56,13 +56,13 @@
 
   /* Rectangular controls, never pills. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded border px-4 py-2.5 font-body text-xs font-bold uppercase tracking-[0.12em] transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+    @apply inline-flex items-center justify-center gap-2 rounded border px-4 py-2.5 font-body text-xs font-bold uppercase tracking-[0.12em] transition-[transform,box-shadow,background-color,border-color,color] duration-200 ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none;
   }
   .btn-primary {
-    @apply btn border-ink bg-ink text-sheet hover:bg-ink-soft;
+    @apply btn border-ink bg-ink text-sheet hover:-translate-y-0.5 hover:bg-ink-soft hover:shadow-[3px_3px_0_rgba(63,91,255,0.35)] motion-reduce:hover:translate-y-0;
   }
   .btn-secondary {
-    @apply btn border-line bg-sheet text-ink hover:border-ink;
+    @apply btn border-line bg-sheet text-ink hover:-translate-y-0.5 hover:border-ink hover:shadow-[3px_3px_0_rgba(16,26,43,0.10)] motion-reduce:hover:translate-y-0;
   }
   /* Outlined cobalt: the "open payment check" action. Text stays ink for contrast. */
   .btn-signal {
