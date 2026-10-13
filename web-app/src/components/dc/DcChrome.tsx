@@ -1,15 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import { MotionConfig } from 'motion/react';
 import { Toaster } from 'sonner';
 import type { ReactNode } from 'react';
 import '@/styles/dc.css';
 import { PageTransition } from './motion';
+import { PasskeyButton } from './PasskeyButton';
 
-// Wallet UI is optional chrome: loaded on the client only, so no page depends on it to render.
-const ConnectButton = dynamic(() => import('@rainbow-me/rainbowkit').then((m) => m.ConnectButton), { ssr: false });
 
 const LINKS = [
   { href: '/issue', label: 'Issue' },
@@ -40,7 +38,7 @@ export function DcHeader({ wallet = true }: { wallet?: boolean }) {
             <Link href="/issue" className="btn-signal">
               Issue credential
             </Link>
-            {wallet && <ConnectButton showBalance={false} chainStatus="none" accountStatus="address" />}
+            {wallet && <PasskeyButton />}
           </div>
         </div>
       </header>

@@ -1,7 +1,6 @@
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { defineChain } from 'viem';
 
-// Monad testnet configuration
+// Monad testnet. Public settings only; reads go through this RPC and passkey-signed writes are sent to it.
 const RPC_URL = process.env.NEXT_PUBLIC_MONAD_RPC || process.env.NEXT_PUBLIC_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz';
 export const monadTestnet = defineChain({
   id: 10143,
@@ -28,9 +27,4 @@ export const monadTestnet = defineChain({
   testnet: true,
 });
 
-export const wagmiConfig = getDefaultConfig({
-  appName: 'Credentia',
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
-  chains: [monadTestnet],
-  ssr: true,
-});
+export const FAUCET_URL = 'https://faucet.monad.xyz';

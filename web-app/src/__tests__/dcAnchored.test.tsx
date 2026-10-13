@@ -8,13 +8,21 @@ import { dashboardStatus } from '@/components/dc/DashboardView';
 import { assess, encodePayload, hashRecord, idForPayload, typeHash, type OnChainCredential, type SharePayload } from '@/lib/dc/credential';
 
 const mockRead = jest.fn();
+const mockCvi = jest.fn();
+const mockExtras = jest.fn();
 jest.mock('@/lib/dc/registry', () => ({
   isAnchoringEnabled: true,
   registryAddress: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
   registryAbi: [],
   readCredential: (...a: unknown[]) => mockRead(...a),
+  readCvi: (...a: unknown[]) => mockCvi(...a),
+  readIssuerAuthorized: () => Promise.resolve(true),
+  readCredentialExtras: (...a: unknown[]) => mockExtras(...a),
+  writeRegistry: jest.fn(),
+  writeErrorMessage: (_e: unknown, fallback: string) => fallback,
 }));
-jest.mock('@/lib/wagmi', () => ({ monadTestnet: { id: 10143 } }));
+jest.mock('@/lib/monad', () => ({ monadTestnet: { id: 10143 }, FAUCET_URL: 'https://faucet.example' }));
+const VERIFIED_CVI = { gateOn: true, verified: true, tier: 2, expiresAt: 0, updatedAt: 1_700_000_000 };
 
 const TX = `0x${'cd'.repeat(32)}` as const;
 const payload: SharePayload = {
@@ -33,7 +41,11 @@ const view = (p: SharePayload | null = payload) =>
     </QueryClientProvider>
   );
 
-beforeEach(() => mockRead.mockReset());
+beforeEach(() => {
+  mockRead.mockReset();
+  mockCvi.mockReset().mockResolvedValue(VERIFIED_CVI);
+  mockExtras.mockReset().mockResolvedValue({ highAssurance: false, verificationCount: 3 });
+});
 
 describe('verify page, registry configured', () => {
   it('matching, active credential: VERIFIED, with the explorer link to its transaction and the success dialog content', async () => {
@@ -43,6 +55,26 @@ describe('verify page, registry configured', () => {
     expect(screen.getByRole('link', { name: /Verify on Monad/ })).toHaveAttribute('href', expect.stringMatching(new RegExp(`/tx/${TX}$`)));
     expect(screen.getByText('Credential verified')).toBeInTheDocument();
     expect(screen.getAllByText(TX).length).toBeGreaterThan(0);
+  });
+
+  it('shows the issuer’s Cleanverse status and the on-chain record, and asks for a passkey before recording a receipt', async () => {
+    mockRead.mockResolvedValue(chain());
+    view();
+    expect(await screen.findByText('CVI VERIFIED')).toBeInTheDocument();
+    expect(screen.getByText(/holds a Cleanverse Verified Identity testnet demo stand-in attested on Monad\. Tier 2\./)).toBeInTheDocument();
+    expect(await screen.findByText('Read from the registry')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText(/Event history needs the Envio indexer/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign in to record/ })).toBeInTheDocument();
+  });
+
+  it('an issuer without a Cleanverse identity is called out, and a high-assurance credential is marked', async () => {
+    mockRead.mockResolvedValue(chain());
+    mockCvi.mockResolvedValue({ gateOn: true, verified: false, tier: 0, expiresAt: 0, updatedAt: 0 });
+    mockExtras.mockResolvedValue({ highAssurance: true, verificationCount: 0 });
+    view();
+    expect(await screen.findByText('CVI NOT VERIFIED')).toBeInTheDocument();
+    expect(await screen.findByText('High-assurance credential.')).toBeInTheDocument();
   });
 
   it('edited details in the link: DETAILS DO NOT MATCH, never VERIFIED', async () => {

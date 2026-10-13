@@ -40,6 +40,20 @@ interface ICredentialRegistry {
     /// @param newDomainSeparator The new domain separator value
     event DomainSeparatorUpdated(bytes32 newDomainSeparator);
 
+    /// @notice Emitted when the owner sets or clears the Cleanverse CVI gate
+    /// @param verifier The new verifier contract, or address(0) when the gate is switched off
+    event CviVerifierUpdated(address indexed verifier);
+
+    /// @notice Emitted when a credential is issued through the high-assurance path
+    /// @param id The credential ID. Both issuer and holder were CVI-verified at issuance.
+    event HighAssuranceCredentialIssued(bytes32 indexed id);
+
+    /// @notice Emitted when someone records a verification of a credential on-chain
+    /// @param id The credential that was checked
+    /// @param verifier The account that recorded the check
+    /// @param valid Whether the credential was valid at that moment
+    event CredentialChecked(bytes32 indexed id, address indexed verifier, bool valid);
+
     /// @notice Struct representing a verifiable credential
     struct Credential {
         address issuer;
@@ -139,4 +153,35 @@ interface ICredentialRegistry {
      * @return domainSeparator The domain separator hash
      */
     function getDomainSeparator() external view returns (bytes32);
+
+    // ─── Cleanverse CVI gate ────────────────────────────────────────
+
+    /// @notice Set the contract that answers "is this wallet CVI-verified?". Owner only.
+    /// @param verifier An {ICviVerifier}, or address(0) to switch the gate off
+    function setCviVerifier(address verifier) external;
+
+    /// @notice The current CVI verifier, or address(0) when issuance is not CVI-gated
+    function cviVerifier() external view returns (address);
+
+    /// @notice Issue a credential that also requires the HOLDER to be CVI-verified
+    /// @dev Reverts unless a CVI verifier is set and both issuer and holder pass it
+    function issueHighAssuranceCredential(
+        address holder,
+        bytes32 credentialType,
+        bytes32 dataHash,
+        uint64 expiryTimestamp
+    ) external returns (bytes32 id);
+
+    /// @notice Whether a credential was issued through the high-assurance path
+    function isHighAssurance(bytes32 id) external view returns (bool);
+
+    // ─── Verification receipts ──────────────────────────────────────
+
+    /// @notice Leave an on-chain receipt that the caller checked a credential
+    /// @param id The credential ID
+    /// @return valid The credential's validity at this block
+    function recordVerification(bytes32 id) external returns (bool valid);
+
+    /// @notice How many verification receipts a credential has
+    function verificationCount(bytes32 id) external view returns (uint256);
 }

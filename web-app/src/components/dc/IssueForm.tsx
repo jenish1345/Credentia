@@ -4,39 +4,36 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from 'wagmi';
 import { getAddress, type Hex } from 'viem';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Loader2 } from 'lucide-react';
+import { useAccount } from '@/components/account';
 import { useCredentialStatus } from '@/hooks/useCredentialStatus';
-import { monadTestnet } from '@/lib/wagmi';
+import { useCvi } from '@/hooks/useCvi';
+import { cviAllowsIssuing } from '@/lib/dc/cvi';
 import {
   DEMO_ISSUER, DESCRIPTION_MAX, expiryToUnix, formSchema, hashRecord, idForPayload, randomSalt, receiptPath, typeHash, verifyPath,
   type FormValues, type SharePayload,
 } from '@/lib/dc/credential';
 import { fmtExpiry, fmtUnix } from '@/lib/dc/format';
-import { isAnchoringEnabled, registryAbi, registryAddress } from '@/lib/dc/registry';
+import { isAnchoringEnabled, registryAddress, writeErrorMessage, writeRegistry } from '@/lib/dc/registry';
 import { saveIssued } from '@/lib/dc/store';
 import { shortenAddress } from '@/lib/utils';
+import { CopilotDraftPanel } from './Copilot';
 import { CredentialCard } from './CredentialCard';
+import { CviLine } from './CviBadge';
+import { PasskeyButton } from './PasskeyButton';
 import { ShareBlock } from './ShareBlock';
 
 type Stage = 'idle' | 'wallet' | 'confirming' | 'done' | 'error';
 
-function friendlyError(e: unknown): string {
-  const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
-  if (/User rejected|denied|rejected the request/i.test(msg)) return 'You cancelled the request in your wallet. Nothing was issued.';
-  if (/NotAuthorizedIssuer/i.test(msg)) return 'This wallet is not an authorised issuer on the registry. Ask the registry owner to authorise it, then try again.';
-  if (/CredentialAlreadyExists|already exists/i.test(msg)) return 'An identical credential already exists. Change any detail and try again.';
-  if (/insufficient funds/i.test(msg)) return 'This wallet has no Monad testnet gas. Get testnet MON from a faucet and try again.';
-  return 'Could not issue the credential. Nothing was recorded. Check your connection and wallet, then try again.';
-}
+const ISSUE_FAILED = 'Could not issue the credential. Nothing was recorded. Check your connection and try again.';
 
 export function IssueForm() {
-  const { address, chainId, isConnected } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient({ chainId: monadTestnet.id });
+  const { address, isConnected, signer } = useAccount();
+  // In demo mode there may be no account at all; the stand-in issuer is what gets "verified".
+  const issuerWallet = address ?? (isAnchoringEnabled ? undefined : DEMO_ISSUER);
+  const cvi = useCvi(issuerWallet, { withAuthorization: true });
+  const [highAssurance, setHighAssurance] = useState(false);
   const [stage, setStage] = useState<Stage>('idle');
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ id: Hex; payload: SharePayload } | null>(null);
@@ -67,20 +64,13 @@ export function IssueForm() {
         return;
       }
 
-      if (!isConnected || !address) throw new Error('Connect a wallet to issue.');
-      setStage('wallet');
-      if (chainId !== monadTestnet.id) await switchChainAsync({ chainId: monadTestnet.id });
-
-      const hash = await writeContractAsync({
-        address: registryAddress,
-        abi: registryAbi,
-        functionName: 'issueCredential',
-        args: [holder, typeHash(record.title), hashRecord(record), BigInt(expiry)],
-        chainId: monadTestnet.id,
-      });
+      if (!signer || !address) throw new Error('Sign in with a passkey to issue.');
       setStage('confirming');
-      const receipt = await publicClient?.waitForTransactionReceipt({ hash });
-      if (receipt && receipt.status !== 'success') throw new Error('The transaction was reverted.');
+      // Signed in this tab by the passkey account and sent straight to Monad. No extension, no relayer.
+      const hash = await writeRegistry(signer, {
+        functionName: highAssurance ? 'issueHighAssuranceCredential' : 'issueCredential',
+        args: [holder, typeHash(record.title), hashRecord(record), BigInt(expiry)],
+      });
 
       const payload: SharePayload = { v: 1, ...record, issuer: getAddress(address), holder, expiry, issuedAt: now, tx: hash };
       const id = idForPayload(payload);
@@ -88,7 +78,7 @@ export function IssueForm() {
       setIssued({ id, payload });
       setStage('done');
     } catch (e) {
-      setError(friendlyError(e));
+      setError(writeErrorMessage(e, ISSUE_FAILED));
       setStage('error');
     }
   };
@@ -103,7 +93,10 @@ export function IssueForm() {
   }
 
   const busy = stage === 'wallet' || stage === 'confirming';
-  const needsWallet = isAnchoringEnabled && !isConnected;
+  const needsAccount = isAnchoringEnabled && !isConnected;
+  const cviOk = cvi.status ? cviAllowsIssuing(cvi.status.state) : false;
+  const gateOn = cvi.status ? cvi.status.state !== 'GATE_OFF' : true;
+  const blocked = needsAccount || !cviOk || cvi.authorized === false;
 
   const fillExample = () => {
     const opts = { shouldValidate: true, shouldDirty: true } as const;
@@ -123,6 +116,48 @@ export function IssueForm() {
           <p className="mt-1">No registry address is configured, so credentials made here are not anchored on Monad and will show as DEMO, never as verified.</p>
         </div>
       )}
+
+      <section aria-label="Issuer verification" className={`rounded border-l-4 border p-4 ${cviOk ? 'border-go bg-go-soft' : 'border-review bg-review-soft'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="dc-label text-ink">Step 0 · Verified issuers only</h2>
+          <span className="rounded border border-line bg-paper-deep px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink-soft">
+            Testnet demo stand-in · No real Cleanverse integration
+          </span>
+        </div>
+        {needsAccount ? (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+            <p className="max-w-md text-sm">Sign in with a passkey. The registry uses a testnet demo stand-in CVI gate to verify issuers (no real Cleanverse integration).</p>
+            <PasskeyButton />
+          </div>
+        ) : cvi.isLoading || !cvi.status ? (
+          <p role="status" className="mt-2 flex items-center gap-2 text-sm">
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Checking your CVI verification (demo stand-in)…
+          </p>
+        ) : (
+          <div className="mt-2 space-y-3">
+            <CviLine status={cvi.status} who={issuerWallet ? `Issuer ${shortenAddress(issuerWallet)}` : 'Issuer'} />
+            {cvi.simulate && (
+              <button type="button" className="btn-secondary" onClick={() => cvi.simulate?.(cvi.status?.state !== 'DEMO_VERIFIED')}>
+                {cvi.status.state === 'DEMO_VERIFIED' ? 'Remove simulated verification' : 'Simulate CVI verification (demo)'}
+              </button>
+            )}
+            {!cviOk && !cvi.simulate && (
+              <p className="text-sm">Issuing is locked until this wallet is attested on the registry’s CVI demo oracle. Note: this is a testnet demo stand-in and not a real Cleanverse integration.</p>
+            )}
+            {cvi.authorized === false && (
+              <p className="text-sm">This account is also not on the registry’s list of authorised issuers. The registry owner needs to add it.</p>
+            )}
+          </div>
+        )}
+      </section>
+
+      <CopilotDraftPanel
+        onUse={(draft) => {
+          const opts = { shouldValidate: true, shouldDirty: true } as const;
+          setValue('title', draft.title, opts);
+          setValue('description', draft.description, opts);
+        }}
+      />
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink-soft">Four details and you are done.</p>
@@ -145,6 +180,16 @@ export function IssueForm() {
         <input id="expiryDate" type="date" className="input" aria-invalid={!!errors.expiryDate} {...register('expiryDate')} />
       </Field>
 
+      {isAnchoringEnabled && gateOn && (
+        <label className="flex items-start gap-3 rounded border border-line bg-sheet p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#3F5BFF]" checked={highAssurance} onChange={(e) => setHighAssurance(e.target.checked)} />
+          <span>
+            <span className="font-semibold">High-assurance credential</span>
+            <span className="block text-ink-soft">Also require the recipient’s wallet to hold a testnet demo stand-in CVI verification. The registry refuses to issue otherwise (not a real Cleanverse check).</span>
+          </span>
+        </label>
+      )}
+
       <p className="text-sm text-ink-soft">
         The title, recipient name and description travel inside the share link. Only a fingerprint of them is written on-chain, so avoid putting sensitive personal data in them.
       </p>
@@ -152,20 +197,18 @@ export function IssueForm() {
       {error && <p role="alert" className="rounded border border-stop bg-stop-soft p-3 text-sm text-stop">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-4">
-        <button type="submit" className="btn-primary" disabled={busy || needsWallet}>
+        <button type="submit" className="btn-primary" disabled={busy || blocked} aria-describedby={blocked ? 'issue-locked' : undefined}>
           {busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
           Issue credential
         </button>
-        {needsWallet && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-ink-soft">Connect the issuing wallet:</span>
-            <ConnectButton showBalance={false} chainStatus="none" accountStatus="address" />
-          </div>
+        {blocked && !busy && (
+          <span id="issue-locked" className="text-sm text-ink-soft">
+            {needsAccount ? 'Sign in with a passkey above to issue.' : 'Locked until the issuer is verified (step 0).'}
+          </span>
         )}
       </div>
       <p role="status" aria-live="polite" className="min-h-5 text-sm font-semibold">
-        {stage === 'wallet' && 'Issuing your credential… confirm in your wallet.'}
-        {stage === 'confirming' && 'Issuing your credential… waiting for Monad to confirm.'}
+        {stage === 'confirming' && 'Issuing your credential… signed with your passkey, waiting for Monad to confirm.'}
       </p>
     </form>
     </div>
