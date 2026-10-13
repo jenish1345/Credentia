@@ -7,6 +7,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {ICredentialRegistry} from "./interfaces/ICredentialRegistry.sol";
+import {ICviVerifier} from "./interfaces/ICviVerifier.sol";
 
 /**
  * @title CredentialRegistry
@@ -55,6 +56,16 @@ contract CredentialRegistry is
     /// @notice Total active (non-revoked, non-expired) credentials
     uint256 public activeCredentials;
 
+    /// @notice Cleanverse CVI gate. When set, only CVI-verified issuers can issue.
+    ///         address(0) leaves issuance gated by owner authorization alone.
+    address public override cviVerifier;
+
+    /// @dev credential ID => issued through the high-assurance path
+    mapping(bytes32 => bool) internal _highAssurance;
+
+    /// @notice credential ID => number of on-chain verification receipts
+    mapping(bytes32 => uint256) public override verificationCount;
+
     // ──────────────────────────────────────────────────────────────
     // Modifiers
     // ──────────────────────────────────────────────────────────────
@@ -82,6 +93,12 @@ contract CredentialRegistry is
     error InvalidHolder();
     error ZeroAddress();
     error InvalidDeadline();
+    /// @dev The issuer does not hold a valid Cleanverse Verified Identity
+    error IssuerNotCviVerified(address issuer);
+    /// @dev The holder does not hold a valid Cleanverse Verified Identity
+    error HolderNotCviVerified(address holder);
+    /// @dev The high-assurance path needs a CVI verifier to be configured
+    error CviGateNotConfigured();
 
     // ──────────────────────────────────────────────────────────────
     // Constructor
@@ -126,25 +143,8 @@ contract CredentialRegistry is
         if (expiryTimestamp != 0 && expiryTimestamp > MAX_EXPIRY) revert InvalidExpiry(expiryTimestamp);
         if (expiryTimestamp != 0 && expiryTimestamp <= block.timestamp) revert InvalidExpiry(expiryTimestamp);
 
-        id = _computeCredentialId(msg.sender, holder, credentialType, dataHash);
-        if (_credentials[id].issuer != address(0)) revert CredentialAlreadyExists(id);
-
-        _credentials[id] = ICredentialRegistry.Credential({
-            issuer: msg.sender,
-            holder: holder,
-            credentialType: credentialType,
-            dataHash: dataHash,
-            issuedAt: uint64(block.timestamp),
-            expiryTimestamp: expiryTimestamp,
-            revoked: false
-        });
-
-        unchecked {
-            ++totalCredentials;
-            ++activeCredentials;
-        }
-
-        emit CredentialIssued(id, msg.sender, holder, credentialType, expiryTimestamp);
+        _requireCviVerifiedIssuer(msg.sender);
+        id = _issue(msg.sender, holder, credentialType, dataHash, expiryTimestamp);
     }
 
     /**
@@ -183,25 +183,8 @@ contract CredentialRegistry is
 
         if (!_authorizedIssuers[signer]) revert NotAuthorizedIssuer(signer);
 
-        id = _computeCredentialId(signer, request.holder, request.credentialType, request.dataHash);
-        if (_credentials[id].issuer != address(0)) revert CredentialAlreadyExists(id);
-
-        _credentials[id] = ICredentialRegistry.Credential({
-            issuer: signer,
-            holder: request.holder,
-            credentialType: request.credentialType,
-            dataHash: request.dataHash,
-            issuedAt: uint64(block.timestamp),
-            expiryTimestamp: uint64(request.expiryTimestamp),
-            revoked: false
-        });
-
-        unchecked {
-            ++totalCredentials;
-            ++activeCredentials;
-        }
-
-        emit CredentialIssued(id, signer, request.holder, request.credentialType, request.expiryTimestamp);
+        _requireCviVerifiedIssuer(signer);
+        id = _issue(signer, request.holder, request.credentialType, request.dataHash, uint64(request.expiryTimestamp));
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -334,6 +317,114 @@ contract CredentialRegistry is
     // ──────────────────────────────────────────────────────────────
     // Internal Helpers
     // ──────────────────────────────────────────────────────────────
+
+    // ═══════════════════════════════════════════════════════════════
+    // Cleanverse CVI gate
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * @inheritdoc ICredentialRegistry
+     *
+     * @dev Owner authorization and CVI verification are independent checks: an issuer needs both
+     *      when a verifier is set. Credentials already issued are unaffected by later changes.
+     */
+    function setCviVerifier(address verifier) external override onlyOwner {
+        cviVerifier = verifier;
+        emit CviVerifierUpdated(verifier);
+    }
+
+    /**
+     * @inheritdoc ICredentialRegistry
+     *
+     * @dev For credentials where it matters that the recipient is a verified person or entity too.
+     *      Unlike {issueCredential}, this path refuses to run without a CVI verifier.
+     */
+    function issueHighAssuranceCredential(
+        address holder,
+        bytes32 credentialType,
+        bytes32 dataHash,
+        uint64 expiryTimestamp
+    ) external override onlyIssuer nonReentrant returns (bytes32 id) {
+        if (holder == address(0)) revert InvalidHolder();
+        if (expiryTimestamp != 0 && expiryTimestamp > MAX_EXPIRY) revert InvalidExpiry(expiryTimestamp);
+        if (expiryTimestamp != 0 && expiryTimestamp <= block.timestamp) revert InvalidExpiry(expiryTimestamp);
+
+        address verifier = cviVerifier;
+        if (verifier == address(0)) revert CviGateNotConfigured();
+        if (!ICviVerifier(verifier).isVerified(msg.sender)) revert IssuerNotCviVerified(msg.sender);
+        if (!ICviVerifier(verifier).isVerified(holder)) revert HolderNotCviVerified(holder);
+
+        id = _issue(msg.sender, holder, credentialType, dataHash, expiryTimestamp);
+        _highAssurance[id] = true;
+        emit HighAssuranceCredentialIssued(id);
+    }
+
+    /// @inheritdoc ICredentialRegistry
+    function isHighAssurance(bytes32 id) external view override returns (bool) {
+        return _highAssurance[id];
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Verification receipts
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * @inheritdoc ICredentialRegistry
+     *
+     * @dev Verifying is a free read; this is the optional write that leaves a trace of it.
+     *      Anyone can call it for any existing credential. The receipt records what the registry
+     *      said at that block, including "not valid", so a history of checks can be indexed.
+     */
+    function recordVerification(bytes32 id) external override returns (bool valid) {
+        ICredentialRegistry.Credential storage cred = _credentials[id];
+        if (cred.issuer == address(0)) revert CredentialNotFound(id);
+
+        valid = !cred.revoked && (cred.expiryTimestamp == 0 || cred.expiryTimestamp > block.timestamp)
+            && _authorizedIssuers[cred.issuer];
+
+        unchecked {
+            ++verificationCount[id];
+        }
+        emit CredentialChecked(id, msg.sender, valid);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Internal
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Reverts when a CVI verifier is set and `issuer` does not pass it. No-op when unset.
+    function _requireCviVerifiedIssuer(address issuer) internal view {
+        address verifier = cviVerifier;
+        if (verifier != address(0) && !ICviVerifier(verifier).isVerified(issuer)) {
+            revert IssuerNotCviVerified(issuer);
+        }
+    }
+
+    /// @dev Stores a new credential and emits {CredentialIssued}. Callers validate inputs first.
+    function _issue(address issuer, address holder, bytes32 credentialType, bytes32 dataHash, uint64 expiryTimestamp)
+        internal
+        returns (bytes32 id)
+    {
+        id = _computeCredentialId(issuer, holder, credentialType, dataHash);
+        if (_credentials[id].issuer != address(0)) revert CredentialAlreadyExists(id);
+
+        _credentials[id] = ICredentialRegistry.Credential({
+            issuer: issuer,
+            holder: holder,
+            credentialType: credentialType,
+            dataHash: dataHash,
+            issuedAt: uint64(block.timestamp),
+            expiryTimestamp: expiryTimestamp,
+            revoked: false
+        });
+
+        unchecked {
+            ++totalCredentials;
+            ++activeCredentials;
+        }
+
+        emit CredentialIssued(id, issuer, holder, credentialType, expiryTimestamp);
+    }
 
     /**
      * @dev Computes a deterministic credential ID from its components.

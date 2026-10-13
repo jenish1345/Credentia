@@ -4,7 +4,7 @@ import PaymentCheckPage from '@/app/payment-check/page';
 import { jsonResponse, rawResult } from './testUtils';
 
 let mockAddress: string | undefined;
-jest.mock('wagmi', () => ({ useAccount: () => ({ address: mockAddress }) }));
+jest.mock('@/components/account', () => ({ useAccount: () => ({ address: mockAddress }) }));
 jest.mock('@/components/layout/header', () => ({ Header: () => null }));
 jest.mock('@/components/layout/footer', () => ({ Footer: () => null }));
 
@@ -62,11 +62,11 @@ describe('Payment Risk Check page', () => {
     });
   });
 
-  it('uses the connected wallet as the sender', async () => {
+  it('uses the signed-in passkey account as the sender', async () => {
     mockAddress = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
     fetchMock().mockResolvedValue(jsonResponse(200, rawResult('GO')));
     render(<PaymentCheckPage />);
-    expect(screen.getByText(/connected wallet/)).toBeInTheDocument();
+    expect(screen.getByText(/your passkey account/)).toBeInTheDocument();
     await loadSafeDemoAndAnalyze();
     await screen.findByTestId('verdict-headline');
     expect(JSON.parse(fetchMock().mock.calls[0][1].body).from).toBe(mockAddress);

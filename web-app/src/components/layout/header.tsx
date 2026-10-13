@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { PasskeyButton } from '@/components/dc/PasskeyButton';
 
 const LINKS = [
   { href: '/#how-it-works', label: 'How it works' },
@@ -35,7 +35,7 @@ export function Header() {
             <Link href="/payment-check" className="btn-signal">
               Open payment check
             </Link>
-            <ConnectButton showBalance={false} chainStatus="none" accountStatus="address" />
+            <PasskeyButton />
           </div>
         </div>
       </header>

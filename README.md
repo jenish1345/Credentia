@@ -77,6 +77,14 @@ Credentia uses a layered architecture:
 3. **Client Layer**: Web and mobile interfaces for users
 4. **Integration Layer**: MetaMask Snap for wallet-native identity management
 
+## 🧩 Integration layers (credential flow)
+
+The web app's issue → share → verify → receipt flow carries four optional layers:
+a Cleanverse Verified Identity gate (strictly a testnet demo stand-in adapter; no real Cleanverse integration or bounty eligibility is claimed), Mera passkeys as the account layer, an Envio HyperIndex
+indexer (`/indexer`) providing status, history and issuer reputation, and a KIMI copilot helping draft and
+read credentials. Details, limits and stand-in notices are documented in
+[web-app/README.md](./web-app/README.md#integration-layers).
+
 ## 🔗 Monad Testnet
 
 - **Chain ID**: 10143

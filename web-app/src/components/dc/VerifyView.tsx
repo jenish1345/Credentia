@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef } from 'react';
 import { ExternalLink, Loader2 } from 'lucide-react';
 import { useCredentialStatus } from '@/hooks/useCredentialStatus';
+import { useCvi } from '@/hooks/useCvi';
+import { useInsight } from '@/hooks/useInsight';
+import { buildCopilotContext } from '@/lib/dc/copilot-context';
 import { EXPLORER_URL, explorerAddressUrl } from '@/lib/chain';
 import { decodePayload, isCredentialId, receiptPath, verifyPath, type CredentialStatus } from '@/lib/dc/credential';
 import { fmtExpiry, fmtUnix } from '@/lib/dc/format';
@@ -14,6 +17,10 @@ import { CopyLinkButton } from './ShareBlock';
 import { StatusSwap } from './motion';
 import { StatusBadge } from './StatusBadge';
 import { CheckList } from './CheckList';
+import { CopilotAskPanel } from './Copilot';
+import { CviLine } from './CviBadge';
+import { InsightPanel } from './InsightPanel';
+import { RecordCheck } from './RecordCheck';
 import { checksFor } from '@/lib/dc/checks';
 
 export function explorerLinkFor(tx?: string): string | null {
@@ -36,6 +43,9 @@ export function VerifyView({ id, d }: { id: string; d?: string }) {
   const payload = useMemo(() => decodePayload(d), [d]);
   const validId = isCredentialId(id);
   const { isLoading, chain, assessment } = useCredentialStatus((validId ? id : '0x') as `0x${string}`, payload);
+  const issuerWallet = chain?.issuer ?? payload?.issuer;
+  const cvi = useCvi(validId ? issuerWallet : undefined);
+  const insightQ = useInsight((validId ? id : '0x') as `0x${string}`, issuerWallet, Boolean(payload?.demo));
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const verified = assessment?.status === 'VERIFIED';
@@ -71,6 +81,9 @@ export function VerifyView({ id, d }: { id: string; d?: string }) {
   }
 
   const status = assessment?.status ?? 'UNAVAILABLE';
+  const checks = assessment ? checksFor(assessment, Boolean(payload)) : [];
+  // There is something to inspect when the registry has the credential, or it is a demo credential.
+  const canInspect = Boolean(chain) || status === 'DEMO';
   const tx = payload?.tx;
   const explorer = explorerLinkFor(tx);
   const path = verifyPath(id, payload ?? undefined);
@@ -95,7 +108,19 @@ export function VerifyView({ id, d }: { id: string; d?: string }) {
         <p className="mt-2 text-sm">{assessment?.detail}</p>
       </div>
 
-      {assessment && <div className="mt-6"><CheckList checks={checksFor(assessment, Boolean(payload))} /></div>}
+      {assessment && <div className="mt-6"><CheckList checks={checks} /></div>}
+
+      {issuerWallet && (
+        <section aria-label="Issuer verification" className="dc-sheet mt-6 bg-sheet p-5">
+          <h2 className="dc-label">Who issued this</h2>
+          <p className="mt-2 break-all font-mono text-xs">{issuerWallet}</p>
+          <div className="mt-3">
+            {cvi.status ? <CviLine status={cvi.status} who="Cleanverse identity (testnet stand-in)" /> : <p role="status" className="text-sm text-ink-soft">Checking the issuer’s CVI verification (demo stand-in)…</p>}
+          </div>
+        </section>
+      )}
+
+      {canInspect && <div className="mt-6"><InsightPanel status={status} insight={insightQ.insight} isLoading={insightQ.isLoading} /></div>}
 
       <div className="mt-6">
         {payload ? (
@@ -135,6 +160,18 @@ export function VerifyView({ id, d }: { id: string; d?: string }) {
         <CopyLinkButton path={path} />
         <Link href={receiptPath(id, payload ?? undefined)} className="btn-secondary">View receipt</Link>
       </div>
+
+      {canInspect && (
+        <div className="mt-6">
+          <RecordCheck id={id as `0x${string}`} demo={status === 'DEMO'} receiptHref={receiptPath(id, payload ?? undefined)} onRecorded={insightQ.refresh} />
+        </div>
+      )}
+
+      {assessment && (
+        <div className="mt-6">
+          <CopilotAskPanel context={buildCopilotContext({ id, payload, chain, assessment, checks, cvi: cvi.status, insight: insightQ.insight })} />
+        </div>
+      )}
 
       {verified && (
         <dialog ref={dialogRef} aria-labelledby="verified-title" className="w-[min(92vw,30rem)] rounded-md border border-go bg-sheet p-0 text-ink shadow-sheet backdrop:bg-ink/40">

@@ -1,10 +1,9 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useAccount } from 'wagmi';
+import { useAccount } from '@/components/account';
 import { CasePanel } from '@/components/evidence/CasePanel';
 import { EvidenceLabel } from '@/components/evidence/EvidenceLabel';
 import { Footer } from '@/components/layout/footer';
@@ -31,7 +30,7 @@ function Field({ id, label, hint, error, children }: { id: string; label: string
 }
 
 export default function CreateCredentialPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, connect, busy } = useAccount();
   const [prepared, setPrepared] = useState<PreparedCredential | null>(null);
   const today = useMemo(() => new Date(), []);
   const minDate = toDateInput(today);
@@ -76,16 +75,12 @@ export default function CreateCredentialPage() {
           </div>
 
           {!isConnected && (
-            <CasePanel title="Wallet" tone="review">
-              <p className="text-sm">Viewing and checking profiles does not require a wallet. Issuing a credential does.</p>
+            <CasePanel title="Passkey account" tone="review">
+              <p className="text-sm">Viewing and checking profiles does not require an account. Issuing a credential does.</p>
               <div className="mt-3">
-                <ConnectButton.Custom>
-                  {({ openConnectModal, mounted }) => (
-                    <button type="button" className="btn-signal" onClick={openConnectModal} disabled={!mounted}>
-                      Connect wallet to prepare credential
-                    </button>
-                  )}
-                </ConnectButton.Custom>
+                <button type="button" className="btn-signal" onClick={() => void connect()} disabled={busy}>
+                  Sign in with passkey to prepare credential
+                </button>
               </div>
             </CasePanel>
           )}

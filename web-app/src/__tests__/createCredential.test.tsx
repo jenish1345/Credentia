@@ -5,10 +5,7 @@ import { addDays, prepareCredential, toDateInput, expiryError, credentialFormSch
 import { keccak256, toBytes } from 'viem';
 
 let mockAccount: { address?: string; isConnected: boolean } = { isConnected: false };
-jest.mock('wagmi', () => ({ useAccount: () => mockAccount }));
-jest.mock('@rainbow-me/rainbowkit', () => ({
-  ConnectButton: { Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => React.ReactNode }) => children({ openConnectModal: () => {}, mounted: true }) },
-}));
+jest.mock('@/components/account', () => ({ useAccount: () => ({ ...mockAccount, connect: jest.fn(), busy: false }) }));
 jest.mock('@/components/layout/header', () => ({ Header: () => null }));
 jest.mock('@/components/layout/footer', () => ({ Footer: () => null }));
 
@@ -29,10 +26,10 @@ beforeEach(() => {
 });
 
 describe('create credential page', () => {
-  it('disconnected: explains why a wallet is needed, offers connect, and disables preparing', () => {
+  it('disconnected: explains why an account is needed, offers passkey sign-in, and disables preparing', () => {
     render(<CreateCredentialPage />);
-    expect(screen.getByText('Viewing and checking profiles does not require a wallet. Issuing a credential does.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect wallet to prepare credential' })).toBeInTheDocument();
+    expect(screen.getByText('Viewing and checking profiles does not require an account. Issuing a credential does.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in with passkey to prepare credential' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Prepare credential' })).toBeDisabled();
   });
 
